@@ -1,0 +1,28 @@
+#!/bin/sh
+# Runs inside the image chroot at build time.
+set -e
+
+# --- locale / time zone / keyboard defaults: Quebec (change in Settings if needed) ---
+sed -i 's/^# *fr_CA.UTF-8 UTF-8/fr_CA.UTF-8 UTF-8/; s/^# *en_CA.UTF-8 UTF-8/en_CA.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo 'LANG=fr_CA.UTF-8' > /etc/default/locale
+ln -sf /usr/share/zoneinfo/America/Toronto /etc/localtime
+echo America/Toronto > /etc/timezone
+cat > /etc/default/keyboard <<'EOF'
+XKBMODEL="pc105"
+XKBLAYOUT="ca"
+XKBVARIANT=""
+XKBOPTIONS=""
+BACKSPACE="guess"
+EOF
+
+echo mbp55 > /etc/hostname
+
+# --- services ---
+for s in mbpfan NetworkManager zramswap tlp lightdm; do
+	systemctl enable "$s.service" 2>/dev/null || true
+done
+systemctl set-default graphical.target
+
+# --- helper scripts ---
+chmod 0755 /usr/local/sbin/mbp-install /usr/local/sbin/mbp-nouveau-fw

@@ -1,0 +1,144 @@
+#!/bin/bash
+# mbp-install - install this live system onto ONE existing partition.
+#
+#   sudo mbp-install [--force] [--with-efi] /dev/sdXN
+#
+# Only the target partition is formatted. The EFI partition and every other
+# partition are left alone. By default the boot loader is NOT touched either:
+# the script prints a GRUB menu entry for you to add to your existing GRUB.
+# --with-efi additionally installs GRUB into /EFI/mbp55 on the ESP (without
+# touching the default boot entry or NVRAM).
+set -euo pipefail
+
+ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+EXPECTED_LABEL=rootBodhi
+FORCE=0
+WITH_EFI=0
+ORIG_ARGS=("$@")
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--force) FORCE=1 ;;
+		--with-efi) WITH_EFI=1 ;;
+		-h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+		-*) die "unknown option $1" ;;
+		*) TARGET="$1" ;;
+	esac
+	shift
+done
+TARGET="${TARGET:-}"
+[ -n "$TARGET" ] || die "usage: mbp-install [--force] [--with-efi] /dev/sdXN"
+[ "$(id -u)" = 0 ] || exec sudo "$0" "${ORIG_ARGS[@]}"
+[ -b "$TARGET" ] || die "$TARGET is not a block device"
+[ "$(lsblk -dno TYPE "$TARGET")" = part ] || die "$TARGET is not a partition"
+[ -d /sys/firmware/efi ] || die "not booted in UEFI mode"
+
+# ---- safety checks -------------------------------------------------------
+fstype=$(lsblk -dno FSTYPE "$TARGET")
+label=$(lsblk -dno LABEL "$TARGET")
+parttype=$(lsblk -dno PARTTYPE "$TARGET")
+disk="/dev/$(lsblk -dno PKNAME "$TARGET")"
+
+[ "${parttype,,}" != "$ESP_GUID" ] || die "$TARGET is an EFI System Partition - refusing"
+if findmnt -rn -S "$TARGET" >/dev/null 2>&1; then die "$TARGET is mounted - unmount it first"; fi
+if swapon --noheadings --show=NAME | grep -qx "$TARGET"; then die "$TARGET is active swap"; fi
+
+medium_src=$(findmnt -rn -o SOURCE /run/live/medium 2>/dev/null || true)
+if [ -n "$medium_src" ] && [ "$(readlink -f "$medium_src")" = "$(readlink -f "$TARGET")" ]; then
+	die "$TARGET holds the live medium you booted from"
+fi
+
+if [ "$FORCE" -eq 0 ]; then
+	case "$fstype" in ext2|ext3|ext4) ;; *) die "$TARGET is '$fstype', not ext2/3/4 (use --force to override)" ;; esac
+	[ "$label" = "$EXPECTED_LABEL" ] || die "$TARGET has label '$label', expected '$EXPECTED_LABEL' (use --force to override)"
+fi
+
+SQ=
+for f in /run/live/medium/live/filesystem.squashfs /run/live/rootfs/filesystem.squashfs; do
+	[ -f "$f" ] && { SQ="$f"; break; }
+done
+[ -n "$SQ" ] || die "cannot find filesystem.squashfs (boot the live ISO without the 'toram' option)"
+
+read -r -p "Username for the new system [mbp]: " NEWUSER
+NEWUSER="${NEWUSER:-mbp}"
+[[ "$NEWUSER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "invalid username"
+
+echo "About to ERASE and reformat: $TARGET  (fs=$fstype label='$label' size=$(lsblk -dno SIZE "$TARGET"))"
+lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$disk"
+echo
+read -r -p "Type  ERASE $TARGET  to continue: " answer
+[ "$answer" = "ERASE $TARGET" ] || die "aborted"
+
+# ---- install -------------------------------------------------------------
+MNT=/mnt/mbp-target
+mkdir -p "$MNT"
+cleanup() {
+	set +e
+	for m in boot/efi sys proc dev/pts dev run; do mountpoint -q "$MNT/$m" && umount -l "$MNT/$m"; done
+	mountpoint -q "$MNT" && umount "$MNT"
+}
+trap cleanup EXIT
+
+mkfs.ext4 -F -L mbp55 "$TARGET"
+mount "$TARGET" "$MNT"
+echo "Copying system (this takes a few minutes)..."
+unsquashfs -f -d "$MNT" "$SQ"
+
+ROOT_UUID=$(blkid -s UUID -o value "$TARGET")
+{
+	echo "UUID=$ROOT_UUID / ext4 errors=remount-ro,noatime 0 1"
+} > "$MNT/etc/fstab"
+
+echo mbp55 > "$MNT/etc/hostname"
+printf "127.0.0.1 localhost\n127.0.1.1 mbp55\n" > "$MNT/etc/hosts"
+# live-build resets the default locale; set the Quebec default explicitly.
+echo 'LANG=fr_CA.UTF-8' > "$MNT/etc/default/locale"
+chroot "$MNT" sh -c 'locale -a | grep -qi "^fr_CA" || { sed -i "s/^# *fr_CA.UTF-8/fr_CA.UTF-8/" /etc/locale.gen; locale-gen; }'
+
+for m in dev dev/pts proc sys run; do mount --bind "/$m" "$MNT/$m"; done
+
+chroot "$MNT" useradd -m -s /bin/bash "$NEWUSER"
+for g in sudo audio video plugdev netdev bluetooth cdrom; do
+	if chroot "$MNT" getent group "$g" >/dev/null 2>&1; then chroot "$MNT" usermod -aG "$g" "$NEWUSER"; fi
+done
+echo "Set a password for '$NEWUSER' (used to log in and for sudo):"
+until chroot "$MNT" passwd "$NEWUSER"; do echo "Try again."; done
+
+chroot "$MNT" update-initramfs -u -k all
+
+if [ "$WITH_EFI" -eq 1 ]; then
+	ESP=$(lsblk -nrpo NAME,PARTTYPE "$disk" | awk -v g="$ESP_GUID" 'tolower($2)==g{print $1; exit}')
+	[ -n "$ESP" ] || die "no EFI System Partition found on $disk"
+	ESP_UUID=$(blkid -s UUID -o value "$ESP")
+	mkdir -p "$MNT/boot/efi"
+	mount "$ESP" "$MNT/boot/efi"
+	echo "UUID=$ESP_UUID /boot/efi vfat umask=0077,nofail 0 2" >> "$MNT/etc/fstab"
+	chroot "$MNT" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+		--bootloader-id=mbp55 --no-nvram --recheck
+	chroot "$MNT" update-grub
+	echo "GRUB installed to $ESP:/EFI/mbp55 (default boot entry untouched)."
+fi
+
+KVER=$(find "$MNT/boot" -maxdepth 1 -name "vmlinuz-*" -printf "%f\n" | sed "s/^vmlinuz-//" | sort -V | tail -1)
+ENTRY="menuentry \"MBP55 Linux\" {
+    search --no-floppy --fs-uuid --set=root $ROOT_UUID
+    linux  /boot/vmlinuz-$KVER root=UUID=$ROOT_UUID ro quiet
+    initrd /boot/initrd.img-$KVER
+}"
+printf '%s\n' "$ENTRY" > "$MNT/root/grub-entry.txt"
+sync
+
+cat <<EOF
+
+=== Done. $TARGET now contains MBP55 Linux (root UUID $ROOT_UUID) ===
+
+To boot it, add this to /etc/grub.d/40_custom in the Linux that owns your
+current GRUB (sda2), then run 'sudo update-grub':
+
+$ENTRY
+
+(The same text is saved in /root/grub-entry.txt on the new system.)
+After the first boot you can optionally run:  sudo mbp-nouveau-fw   (hardware video decode in VLC)
+EOF

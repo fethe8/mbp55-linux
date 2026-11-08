@@ -1,0 +1,3 @@
+# compressed swap in RAM instead of swapping to the SSD
+ALGO=zstd
+PERCENT=25

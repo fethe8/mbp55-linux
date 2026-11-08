@@ -1,0 +1,29 @@
+#!/bin/sh
+# live-build configuration for the MacBookPro5,5 (mid-2009) XFCE desktop.
+#
+# Target hardware: Core 2 Duo P7550 (no SSE4.2 -> plain x86-64 baseline only),
+# GeForce 9400M (nouveau), BCM4322 Wi-Fi (brcmsmac), Apple EFI (64-bit).
+# Debian 13 "trixie" is pinned on purpose: it still ships mesa-vdpau-drivers
+# (Mesa 25.0). Mesa 25.3+ removed VDPAU, which would lose hardware video decode.
+set -e
+
+lb config noauto \
+	--distribution trixie \
+	--architectures amd64 \
+	--linux-flavours amd64 \
+	--archive-areas "main contrib non-free non-free-firmware" \
+	--security true \
+	--updates true \
+	--apt-indices false \
+	--debian-installer none \
+	--binary-images iso-hybrid \
+	--bootloaders grub-efi \
+	--uefi-secure-boot disable \
+	--chroot-squashfs-compression-type xz \
+	--iso-application "MBP55 Linux" \
+	--iso-volume "MBP55-LINUX" \
+	--image-name mbp55-linux \
+	--firmware-chroot false \
+	--firmware-binary false \
+	--bootappend-live "boot=live components quiet locales=fr_CA.UTF-8 keyboard-layouts=ca timezone=America/Toronto" \
+	"${@}"

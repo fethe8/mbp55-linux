@@ -1,0 +1,97 @@
+# --- core system ---
+linux-image-amd64
+live-boot
+live-config
+systemd-sysv
+dbus-user-session
+dbus-x11
+sudo
+rsync
+curl
+wget
+ca-certificates
+python3
+unzip
+xz-utils
+locales
+tzdata
+console-setup
+keyboard-configuration
+zram-tools
+intel-microcode
+
+# --- installer helper (mbp-install) ---
+squashfs-tools
+parted
+gdisk
+gparted
+e2fsprogs
+dosfstools
+grub-efi-amd64
+grub-efi-amd64-bin
+efibootmgr
+
+# --- graphics: Xorg + nouveau (GeForce 9400M) ---
+xserver-xorg-core
+xserver-xorg-input-libinput
+xserver-xorg-video-nouveau
+x11-xserver-utils
+x11-xkb-utils
+xkb-data
+libgl1-mesa-dri
+mesa-vdpau-drivers
+vdpauinfo
+fonts-dejavu-core
+fonts-liberation
+
+# --- desktop: XFCE (light, X11) ---
+lightdm
+lightdm-gtk-greeter
+xfce4
+xfce4-terminal
+xfce4-power-manager
+xfce4-pulseaudio-plugin
+xfce4-notifyd
+xfce4-screenshooter
+xfce4-taskmanager
+thunar-archive-plugin
+gvfs-backends
+gvfs-fuse
+udisks2
+polkitd
+lxpolkit
+gnome-keyring
+libpam-gnome-keyring
+xdg-user-dirs
+xdg-user-dirs-gtk
+
+# --- basic apps ---
+firefox-esr
+firefox-esr-l10n-fr
+vlc
+mousepad
+ristretto
+atril
+file-roller
+galculator
+abiword
+gnumeric
+
+# --- audio ---
+pipewire-audio
+pavucontrol
+alsa-utils
+
+# --- networking / Bluetooth ---
+network-manager
+network-manager-gnome
+wpasupplicant
+firmware-brcm80211
+bluez
+blueman
+
+# --- Apple hardware / laptop ---
+mbpfan
+lm-sensors
+tlp
+acpid

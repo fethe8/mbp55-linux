@@ -1,0 +1,49 @@
+name: build-iso
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    paths-ignore: ["README.md"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build inside a Debian trixie container so live-build/debootstrap match the target release.
+      - name: Build ISO
+        run: |
+          docker run --rm --privileged -v "$PWD:/work" -w /work debian:trixie bash -euxc '
+            apt-get update
+            apt-get install -y --no-install-recommends live-build ca-certificates xorriso squashfs-tools
+            lb clean --purge || true
+            lb config
+            lb build
+          '
+
+      - name: Checksum
+        run: |
+          ls -lh *.iso
+          sha256sum *.iso | tee SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mbp55-linux-iso
+          path: |
+            *.iso
+            SHA256SUMS
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.iso
+            SHA256SUMS

@@ -1,0 +1,6 @@
+# brcmsmac + firmware-brcm80211 drive the BCM4322 Wi-Fi out of the box.
+# These installer packages download firmware from third-party hosts at install
+# time (and are only recommended), so keep them out of the image.
+Package: firmware-b43-installer firmware-b43legacy-installer firmware-b43-lpphy-installer
+Pin: release *
+Pin-Priority: -1

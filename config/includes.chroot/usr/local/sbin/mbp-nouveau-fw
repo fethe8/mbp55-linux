@@ -1,0 +1,23 @@
+#!/bin/bash
+# mbp-nouveau-fw - extract the VP3 video-decode firmware (optional; for VLC/VDPAU) that nouveau needs for
+# the GeForce 9400M (NVAC) from NVIDIA's 325.15 driver and install it.
+#
+# The firmware cannot be redistributed, so it is extracted on your own machine,
+# following the procedure on the nouveau wiki (VideoAcceleration page).
+# Needs network access. After running it, check with:  vdpauinfo | grep -i h264
+set -euo pipefail
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+
+VER=325.15
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+cd "$WORK"
+
+curl -fsSLO https://raw.githubusercontent.com/envytools/firmware/master/extract_firmware.py
+curl -fsSLO "https://us.download.nvidia.com/XFree86/Linux-x86/$VER/NVIDIA-Linux-x86-$VER.run"
+sh "NVIDIA-Linux-x86-$VER.run" --extract-only
+python3 extract_firmware.py
+
+install -d /lib/firmware/nouveau
+cp -d nv* vuc-* /lib/firmware/nouveau/ 2>/dev/null || cp -d nv* /lib/firmware/nouveau/
+echo "Installed to /lib/firmware/nouveau. Log out and in (or reboot), then run: vdpauinfo | grep -i h264"
