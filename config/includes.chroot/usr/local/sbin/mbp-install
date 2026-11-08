@@ -1,19 +1,19 @@
 #!/bin/bash
 # mbp-install - install this live system onto ONE existing partition.
 #
-#   sudo mbp-install [--force] [--with-efi] /dev/sdXN
+#   sudo mbp-install [--force] [--with-grub-entry] /dev/sdXN
 #
 # Only the target partition is formatted. The EFI partition and every other
-# partition are left alone. By default the boot loader is NOT touched either:
-# the script prints a GRUB menu entry for you to add to your existing GRUB.
-# --with-efi additionally installs GRUB into /EFI/mbp55 on the ESP (without
-# touching the default boot entry or NVRAM).
+# partition are left alone. The boot loader is NOT touched: the system is meant
+# to be started by rEFInd, which reads the kernel from this ext4 partition and
+# the options from /boot/refind_linux.conf (written here). --with-grub-entry
+# additionally prints a GRUB menu entry.
 set -euo pipefail
 
 ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 EXPECTED_LABEL=rootBodhi
 FORCE=0
-WITH_EFI=0
+WITH_GRUB_ENTRY=0
 ORIG_ARGS=("$@")
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -21,7 +21,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--force) FORCE=1 ;;
-		--with-efi) WITH_EFI=1 ;;
+		--with-grub-entry) WITH_GRUB_ENTRY=1 ;;
 		-h|--help) sed -n '2,11p' "$0"; exit 0 ;;
 		-*) die "unknown option $1" ;;
 		*) TARGET="$1" ;;
@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
 	shift
 done
 TARGET="${TARGET:-}"
-[ -n "$TARGET" ] || die "usage: mbp-install [--force] [--with-efi] /dev/sdXN"
+[ -n "$TARGET" ] || die "usage: mbp-install [--force] [--with-grub-entry] /dev/sdXN"
 [ "$(id -u)" = 0 ] || exec sudo "$0" "${ORIG_ARGS[@]}"
 [ -b "$TARGET" ] || die "$TARGET is not a block device"
 [ "$(lsblk -dno TYPE "$TARGET")" = part ] || die "$TARGET is not a partition"
@@ -76,7 +76,7 @@ MNT=/mnt/mbp-target
 mkdir -p "$MNT"
 cleanup() {
 	set +e
-	for m in boot/efi sys proc dev/pts dev run; do mountpoint -q "$MNT/$m" && umount -l "$MNT/$m"; done
+	for m in sys proc dev/pts dev run; do mountpoint -q "$MNT/$m" && umount -l "$MNT/$m"; done
 	mountpoint -q "$MNT" && umount "$MNT"
 }
 trap cleanup EXIT
@@ -108,18 +108,9 @@ until chroot "$MNT" passwd "$NEWUSER"; do echo "Try again."; done
 
 chroot "$MNT" update-initramfs -u -k all
 
-if [ "$WITH_EFI" -eq 1 ]; then
-	ESP=$(lsblk -nrpo NAME,PARTTYPE "$disk" | awk -v g="$ESP_GUID" 'tolower($2)==g{print $1; exit}')
-	[ -n "$ESP" ] || die "no EFI System Partition found on $disk"
-	ESP_UUID=$(blkid -s UUID -o value "$ESP")
-	mkdir -p "$MNT/boot/efi"
-	mount "$ESP" "$MNT/boot/efi"
-	echo "UUID=$ESP_UUID /boot/efi vfat umask=0077,nofail 0 2" >> "$MNT/etc/fstab"
-	chroot "$MNT" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-		--bootloader-id=mbp55 --no-nvram --recheck
-	chroot "$MNT" update-grub
-	echo "GRUB installed to $ESP:/EFI/mbp55 (default boot entry untouched)."
-fi
+# rEFInd reads this file to get the kernel options for this partition.
+printf '"Boot with defaults"  "root=UUID=%s ro quiet"\n"Boot with nomodeset"  "root=UUID=%s ro nomodeset"\n' \
+	"$ROOT_UUID" "$ROOT_UUID" > "$MNT/boot/refind_linux.conf"
 
 KVER=$(find "$MNT/boot" -maxdepth 1 -name "vmlinuz-*" -printf "%f\n" | sed "s/^vmlinuz-//" | sort -V | tail -1)
 ENTRY="menuentry \"MBP55 Linux\" {
@@ -130,15 +121,13 @@ ENTRY="menuentry \"MBP55 Linux\" {
 printf '%s\n' "$ENTRY" > "$MNT/root/grub-entry.txt"
 sync
 
-cat <<EOF
-
-=== Done. $TARGET now contains MBP55 Linux (root UUID $ROOT_UUID) ===
-
-To boot it, add this to /etc/grub.d/40_custom in the Linux that owns your
-current GRUB (sda2), then run 'sudo update-grub':
-
-$ENTRY
-
-(The same text is saved in /root/grub-entry.txt on the new system.)
-After the first boot you can optionally run:  sudo mbp-nouveau-fw   (hardware video decode in VLC)
-EOF
+echo
+echo "=== Done. $TARGET now contains MBP55 Linux (root UUID $ROOT_UUID) ==="
+echo
+echo "Reboot into rEFInd. It should list a Linux entry for this partition"
+echo "(kernel $KVER, options from /boot/refind_linux.conf)."
+if [ "$WITH_GRUB_ENTRY" -eq 1 ]; then
+	printf '\nGRUB menu entry (add to /etc/grub.d/40_custom, then update-grub):\n\n%s\n' "$ENTRY"
+fi
+echo
+echo "Optional after first boot:  sudo mbp-nouveau-fw   (hardware video decode in VLC)"

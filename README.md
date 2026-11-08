@@ -30,7 +30,9 @@ Local build (Debian host with `live-build`, root): `sudo lb config && sudo lb bu
 ## Install over a partition
 
 1. Write the ISO to a USB stick (`dd if=...iso of=/dev/sdX bs=4M conv=fsync`; check the device with `lsblk`).
-2. Hold **Option** at power-on and pick the EFI boot entry for the stick. The live desktop starts automatically (user `user`, passwordless sudo).
+2. Boot the stick. Hold **Option** on a stock Mac, or pick it in rEFInd (make sure
+   `dont_scan_dirs` in `refind.conf` is limited to the ESP, e.g. `ESP:/EFI/BOOT`).
+   The live desktop starts automatically (user `user`, passwordless sudo).
 3. Open a terminal and run:
 
    ```sh
@@ -40,10 +42,10 @@ Local build (Debian host with `live-build`, root): `sudo lb config && sudo lb bu
    It refuses the EFI partition, mounted/swap partitions and the live medium,
    expects the partition label `rootBodhi` (override with `--force`), and
    requires you to type `ERASE /dev/sda3`. **Only that partition is formatted.**
-   It asks for a username and password for the new system, then prints a GRUB
-   menu entry. Add it to `/etc/grub.d/40_custom` of your main Linux and run
-   `sudo update-grub`. `--with-efi` also installs GRUB into `EFI/mbp55` on the
-   ESP without touching the default boot entry.
+   It asks for a username and password for the new system and writes
+   `/boot/refind_linux.conf`. No boot loader is installed: rEFInd (with its ext4
+   driver and `scan_all_linux_kernels true`) finds the kernel by itself.
+   `--with-grub-entry` also prints a GRUB menu entry if you use GRUB.
 
 4. Optional: `sudo mbp-nouveau-fw` (needs network) extracts the VP3 video firmware
    from NVIDIA's 325.15 driver on your own machine, for hardware decoding in VLC.

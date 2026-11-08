@@ -17,7 +17,7 @@ lb config noauto \
 	--apt-indices false \
 	--debian-installer none \
 	--binary-images iso-hybrid \
-	--bootloaders grub-efi \
+	--bootloaders "syslinux,grub-efi" \
 	--uefi-secure-boot disable \
 	--chroot-squashfs-compression-type xz \
 	--iso-application "MBP55 Linux" \
